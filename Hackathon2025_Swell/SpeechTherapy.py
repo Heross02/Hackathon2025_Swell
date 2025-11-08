@@ -5,6 +5,11 @@ import sqlite3
 import re
 import time
 import os
+from typing import Optional
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from tempfile import NamedTemporaryFile
 
 # ---------------- SETTINGS ----------------
 active = 1  # Set to 1 to enable listening mode
@@ -15,6 +20,7 @@ filename = "temp_audio.wav"
 trigger_words = ["upset", "stop", "hectic", "overwhelming", "stressful"]
 db_name = "transcripts.db"
 
+TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
 
 client = openai.OpenAI(
 
@@ -22,7 +28,16 @@ client = openai.OpenAI(
 )
 # ------------------------------------------
 
+app = FastAPI()
 
+# Allow CORS from your phone/dev IP (adjust origin as needed)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # in production, restrict this
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def setup_database():
     """Create a SQLite database and table for storing transcriptions."""
@@ -40,19 +55,19 @@ def setup_database():
     conn.close()
 
 
-def save_to_database(text, trigger_found):
-    """Save the transcribed text and trigger detection result."""
+def save_to_database(filename: str, text: str, trigger_found: Optional[str]):
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO transcripts (timestamp, text, trigger_found) VALUES (?, ?, ?)",
-                   (time.strftime("%Y-%m-%d %H:%M:%S"), text, trigger_found))
+    cursor.execute(
+        "INSERT INTO transcripts (timestamp, filename, text, trigger_found) VALUES (?, ?, ?, ?)",
+        (time.strftime("%Y-%m-%d %H:%M:%S"), filename, text, trigger_found or "None"),
+    )
     conn.commit()
     conn.close()
 
 
-def detect_triggers(text):
-    """Return any trigger words found in the text."""
-    found = [word for word in trigger_words if re.search(rf"\b{word}\b", text, re.IGNORECASE)]
+def detect_triggers(text: str) -> Optional[str]:
+    found = [w for w in trigger_words if re.search(rf"\b{re.escape(w)}\b", text, re.IGNORECASE)]
     return ", ".join(found) if found else None
 
 
@@ -78,9 +93,23 @@ def transcribe_audio(file_path):
     return text
 
 
-def Face():
-    if trigrespon =
+def Face(trigger_found: Optional[str]) -> str:
+    if trigrespon == 0:
+        imgfile = "SwellSmile.png"
+    if trigrespon == 1:
+        imgfile = "SwellSad.png"
+    else:
+        print("Whoops something went wrong")
+
     return
+
+
+
+def choose_face(trigger_found: Optional[str]) -> str:
+    """Simple mapping to image file name depending on whether triggers were found."""
+    if trigger_found:
+        return "SwellSad.png"
+    return "SwellSmile.png"
 
 
 def main():
@@ -104,10 +133,70 @@ def main():
         text = transcribe_audio(filename)
         trigger_found = detect_triggers(text)
         if trigger_found:
-            trigrespon += 1
+            trigrespon = 1
             #print(f" Trigger detected: {trigger_found}")
         save_to_database(text, trigger_found or "None")
         os.remove(filename)
+
+
+
+class TranscriptionResponse(BaseModel):
+    text: str
+    triggers: Optional[str]
+    engine: str
+    filename: str
+    face_image: str
+
+
+# --- Startup ---
+setup_database()
+
+
+@app.post("/upload", response_model=TranscriptionResponse)
+async def upload_audio(file: UploadFile = File(...)):
+    """
+    Accept an uploaded audio file (wav/m4a) and transcribe it with OpenAI.
+    Returns JSON with transcription, triggers, and recommended face image.
+    """
+    # save to a temporary file
+    try:
+        with NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
+            tmp_name = tmp.name
+            contents = await file.read()
+            tmp.write(contents)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {e}")
+
+    # call OpenAI transcription
+    try:
+        with open(tmp_name, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model=TRANSCRIBE_MODEL,
+                file=audio_file
+            )
+        text = transcription.text.strip()
+    except Exception as e:
+        # cleanup and return error
+        os.remove(tmp_name)
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
+
+    # detect triggers and persist
+    trigger_found = detect_triggers(text)
+    save_to_database(file.filename, text, trigger_found)
+
+    face_image = choose_face(trigger_found)
+
+    # Optionally remove tmp file to save disk
+    os.remove(tmp_name)
+
+    return TranscriptionResponse(
+        text=text,
+        triggers=trigger_found,
+        engine=TRANSCRIBE_MODEL,
+        filename=file.filename,
+        face_image=face_image,
+    )
+
 
 
 

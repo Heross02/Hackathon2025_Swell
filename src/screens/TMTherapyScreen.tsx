@@ -67,55 +67,79 @@ export default function TMTherapyScreen() {
     }
   };
 
-  const stopRecording = async () => {
-    if (!recording) return;
+const stopRecording = async () => {
+  if (!recording) return;
 
+  try {
+    await recording.stopAndUnloadAsync();
+    setIsRecording(false);
+    setIsProcessing(true);
+
+    const uri = recording.getURI();
+    if (!uri) throw new Error("No recording URI available");
+
+    const timestamp = new Date().getTime();
+    const localFilename = `recording_${timestamp}.wav`;
+    const newUri = `${FileSystem.documentDirectory}${localFilename}`;
+
+    // Move the tmp recording to a persistent path we can upload
+    await FileSystem.moveAsync({ from: uri, to: newUri });
+
+    // Prepare form data
+    const formData = new FormData();
+    // For React Native, when using axios, we need file object with name/type/uri
+    formData.append("file", {
+      uri: newUri,
+      name: localFilename,
+      type: "audio/wav",
+    } as any);
+
+    // POST to backend
     try {
-      await recording.stopAndUnloadAsync();
-      setIsRecording(false);
-      setIsProcessing(true);
+      const response = await axios.post(`${API_URL}/upload`, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+        timeout: 30000,
+      });
 
-      const uri = recording.getURI();
-      if (!uri) throw new Error('No recording URI available');
+      const data = response.data as TranscriptionResult;
 
-      // Save the audio file locally with a timestamp
-      const timestamp = new Date().getTime();
-      const newUri = `${FileSystem.documentDirectory}recording_${timestamp}.wav`;
-      await FileSystem.moveAsync({ from: uri, to: newUri });
-
-      // Send to Python script via local file
-      // The Python script will automatically process this file
-      // and save results to the database
-
-      // For immediate feedback, we can simulate the response
-      const mockResult = {
-        text: "Processing audio...",
-        triggers: null,
-        confidence: 1,
-        engine: "OpenAI Whisper",
-        metadata: {}
-      };
-
-      // Add new transcription to list
-      setTranscriptions(prev => [mockResult, ...prev]);
-
-      // Clean up recording file after a delay to allow Python to process it
-      setTimeout(async () => {
-        try {
-          await FileSystem.deleteAsync(newUri);
-        } catch (err) {
-          console.error('Error cleaning up file:', err);
-        }
-      }, 5000);
-
+      // Prepend the real transcription
+      setTranscriptions((prev) => [data, ...prev]);
     } catch (err) {
-      console.error('Error processing recording:', err);
-      Alert.alert('Error', 'Failed to process recording. Please try again.');
-    } finally {
-      setRecording(null);
-      setIsProcessing(false);
+      console.error("Upload/transcription error:", err);
+      Alert.alert("Upload error", "Failed to upload and transcribe recording.");
+      // Optionally keep the mock or show an error entry
+      setTranscriptions((prev) => [
+        {
+          text: "Transcription failed.",
+          triggers: null,
+          confidence: 1,
+          engine: "error",
+          metadata: {},
+        },
+        ...prev,
+      ]);
     }
-  };
+
+    // cleanup the file after a short delay
+    setTimeout(async () => {
+      try {
+        await FileSystem.deleteAsync(newUri);
+      } catch (e) {
+        console.warn("Failed to delete local file:", e);
+      }
+    }, 4000);
+  } catch (err) {
+    console.error("Error processing recording:", err);
+    Alert.alert("Error", "Failed to process recording. Please try again.");
+  } finally {
+    setRecording(null);
+    setIsProcessing(false);
+  }
+};
+
 
   const renderTranscription = (result: TranscriptionResult, index: number) => (
     <View key={index} style={styles.transcriptionCard}>
