@@ -47,6 +47,7 @@ def setup_database():
         CREATE TABLE IF NOT EXISTS transcripts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT,
+            filename TEXT,
             text TEXT,
             trigger_found TEXT
         )
@@ -64,6 +65,7 @@ def save_to_database(filename: str, text: str, trigger_found: Optional[str]):
     )
     conn.commit()
     conn.close()
+
 
 
 def detect_triggers(text: str) -> Optional[str]:
@@ -85,23 +87,12 @@ def transcribe_audio(file_path):
     #print(" Transcribing with OpenAI Whisper...")
     with open(file_path, "rb") as audio_file:
         transcript = client.audio.transcriptions.create(
-            model="gpt-4o-mini-transcribe",
+            model=TRANSCRIBE_MODEL,
             file=audio_file
         )
     text = transcript.text.strip()
     #print(f" Transcription: {text}")
     return text
-
-
-def Face(trigger_found: Optional[str]) -> str:
-    if trigrespon == 0:
-        imgfile = "SwellSmile.png"
-    if trigrespon == 1:
-        imgfile = "SwellSad.png"
-    else:
-        print("Whoops something went wrong")
-
-    return
 
 
 
@@ -135,7 +126,7 @@ def main():
         if trigger_found:
             trigrespon = 1
             #print(f" Trigger detected: {trigger_found}")
-        save_to_database(text, trigger_found or "None")
+        save_to_database(filename, text, trigger_found or "None")
         os.remove(filename)
 
 
@@ -182,7 +173,7 @@ async def upload_audio(file: UploadFile = File(...)):
 
     # detect triggers and persist
     trigger_found = detect_triggers(text)
-    save_to_database(file.filename, text, trigger_found)
+    save_to_database(filename, text, trigger_found or "None")
 
     face_image = choose_face(trigger_found)
 

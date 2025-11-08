@@ -7,13 +7,13 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
-  Image, // 👈 Added Image import
+  Image, // Added Image import
 } from 'react-native';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import axios from 'axios';
 
-const API_URL = 'http://192.168.1.79:8000'; // Your backend server
+const API_URL = 'http://192.168.1.79:8001'; // Your backend server
 
 interface TranscriptionResult {
   text: string;
