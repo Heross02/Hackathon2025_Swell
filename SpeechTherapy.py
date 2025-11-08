@@ -1,27 +1,13 @@
-import openai
-import sounddevice as sd
-import wavio
+#import speech_recognition as sr
 import sqlite3
 import re
 import time
-import os
 
 # ---------------- SETTINGS ----------------
-active = 1  # Set to 1 to enable listening mode
-duration = 10  # seconds to record each clip
-samplerate = 44100
-filename = "temp_audio.wav"
+active = 1  # Set to 1 to enable listening mode, 0 to disable
 trigger_words = ["upset", "stop", "hectic", "overwhelming", "stressful"]
 db_name = "transcripts.db"
-
-
-client = openai.OpenAI(
-
-
-
-)
 # ------------------------------------------
-
 
 
 def setup_database():
@@ -56,54 +42,42 @@ def detect_triggers(text):
     return ", ".join(found) if found else None
 
 
-def record_audio():
-    """Record audio from the microphone and save it to a WAV file."""
-    print(f" Recording {duration} seconds of audio...")
-    audio_data = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype='int16')
-    sd.wait()
-    wavio.write(filename, audio_data, samplerate, sampwidth=2)
-    print(" Audio recorded.")
+def listen_and_transcribe():
+    """Continuously listen for audio and transcribe speech."""
+    #recognizer = sr.Recognizer()
+    #mic = sr.Microphone()
 
-
-def transcribe_audio(file_path):
-    """Send the recorded audio file to OpenAI for transcription."""
-    print(" Transcribing with OpenAI Whisper...")
-    with open(file_path, "rb") as audio_file:
-        transcript = client.audio.transcriptions.create(
-            model="gpt-4o-mini-transcribe",
-            file=audio_file
-        )
-    text = transcript.text.strip()
-    print(f" Transcription: {text}")
-    return text
+    print("🎙️  Listening... (say something)")
+    # with mic as source:
+    #     recognizer.adjust_for_ambient_noise(source)
+    #     audio = recognizer.listen(source)
+    #
+    # try:
+    #     text = recognizer.recognize_google(audio)
+    #     print(f"🗣️  You said: {text}")
+    #
+    #     trigger_found = detect_triggers(text)
+    #     if trigger_found:
+    #         print(f"🚨 Trigger detected: {trigger_found}")
+    #
+    #     save_to_database(text, trigger_found or "None")
+    #
+    # except sr.UnknownValueError:
+    #     print("❌ Could not understand audio.")
+    # except sr.RequestError:
+    #     print("⚠️ Could not reach speech recognition service.")
 
 
 def main():
-    global active
     setup_database()
-    start_time = time.perf_counter()
 
-
-    print("Voice recognition active. Speak when ready.")
-
-
-    while active == 1:
-        # Check elapsed time
-        elapsed = time.perf_counter() - start_time
-        if elapsed >= 11:
-            active = 0
-            print("11 seconds passed. Stopping voice recognition.")
-            break
-
-        record_audio()
-        text = transcribe_audio(filename)
-        trigger_found = detect_triggers(text)
-        if trigger_found:
-            print(f" Trigger detected: {trigger_found}")
-        save_to_database(text, trigger_found or "None")
-        os.remove(filename)
-
-
+    if active == 1:
+        print("Voice recognition active. Speak when ready.")
+        while True:
+            listen_and_transcribe()
+            print("\nSay something again or press Ctrl+C to exit.\n")
+    else:
+        print("Voice recognition is disabled (set active = 1 to enable).")
 
 
 if __name__ == "__main__":
