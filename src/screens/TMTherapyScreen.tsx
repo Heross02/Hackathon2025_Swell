@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 export default function App() {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [listening, setListening] = useState(false);
-  const [image, setImage] = useState("Neutral.png");
+  const [image, setImage] = useState("SwellSmile.png");
   const [transcripts, setTranscripts] = useState<string[]>([]);
 
   useEffect(() => {
@@ -24,7 +24,7 @@ export default function App() {
         if (data.trigger_found && data.trigger_found.length > 0) {
           setImage("SwellSad.png");
         } else {
-          setImage("Neutral.png");
+          setImage("SwellSmile.png");
         }
       }
     };
