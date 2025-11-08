@@ -8,7 +8,7 @@ import os
 
 # ---------------- SETTINGS ----------------
 active = 1  # Set to 1 to enable listening mode
-duration = 5  # seconds to record each clip
+duration = 10  # seconds to record each clip
 samplerate = 44100
 filename = "temp_audio.wav"
 trigger_words = ["upset", "stop", "hectic", "overwhelming", "stressful"]
@@ -16,6 +16,7 @@ db_name = "transcripts.db"
 
 
 client = openai.OpenAI(
+
 
 
 )
@@ -78,21 +79,31 @@ def transcribe_audio(file_path):
 
 
 def main():
+    global active
     setup_database()
+    start_time = time.perf_counter()
 
-    if active == 1:
-        print("Voice recognition active. Speak when ready.")
-        while True:
-            record_audio()
-            text = transcribe_audio(filename)
-            trigger_found = detect_triggers(text)
-            if trigger_found:
-                print(f" Trigger detected: {trigger_found}")
-            save_to_database(text, trigger_found or "None")
-            os.remove(filename)
-            print("\nSay something again or press Ctrl+C to exit.\n")
-    else:
-        print("Voice recognition is disabled (set active = 1 to enable).")
+
+    print("Voice recognition active. Speak when ready.")
+
+
+    while active == 1:
+        # Check elapsed time
+        elapsed = time.perf_counter() - start_time
+        if elapsed >= 11:
+            active = 0
+            print("11 seconds passed. Stopping voice recognition.")
+            break
+
+        record_audio()
+        text = transcribe_audio(filename)
+        trigger_found = detect_triggers(text)
+        if trigger_found:
+            print(f" Trigger detected: {trigger_found}")
+        save_to_database(text, trigger_found or "None")
+        os.remove(filename)
+
+
 
 
 if __name__ == "__main__":
