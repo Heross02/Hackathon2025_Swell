@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 export default function App() {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [listening, setListening] = useState(false);
-  const [image, setImage] = useState("SwellSmile.png");
+  const [image, setImage] = useState('../assets/SwellSmile.png');
   const [transcripts, setTranscripts] = useState<string[]>([]);
 
   useEffect(() => {
@@ -22,9 +22,9 @@ export default function App() {
         // Regular transcription update
         setTranscripts((prev) => [data.text, ...prev]);
         if (data.trigger_found && data.trigger_found.length > 0) {
-          setImage("SwellSad.png");
+          setImage('../assets/SwellSad.png');
         } else {
-          setImage("SwellSmile.png");
+          setImage('../assets/SwellSmile.png');
         }
       }
     };
