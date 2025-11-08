@@ -20,11 +20,14 @@ filename = "temp_audio.wav"
 trigger_words = ["upset", "stop", "hectic", "overwhelming", "stressful"]
 db_name = "transcripts.db"
 
-TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
+TRANSCRIBE_MODEL = "whisper-1"
+
+# Load API key from environment — do NOT hardcode secrets in source code.
+from dotenv import load_dotenv
+load_dotenv()
 
 client = openai.OpenAI(
-
-
+    api_key=os.getenv("OPENAI_API_KEY")
 )
 # ------------------------------------------
 
@@ -55,12 +58,12 @@ def setup_database():
     conn.close()
 
 
-def save_to_database(filename: str, text: str, trigger_found: Optional[str]):
+def save_to_database(text: str, trigger_found: Optional[str]):
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO transcripts (timestamp, filename, text, trigger_found) VALUES (?, ?, ?, ?)",
-        (time.strftime("%Y-%m-%d %H:%M:%S"), filename, text, trigger_found or "None"),
+        "INSERT INTO transcripts (timestamp, text, trigger_found) VALUES (?, ?, ?)",
+        (time.strftime("%Y-%m-%d %H:%M:%S"), text, trigger_found or "None"),
     )
     conn.commit()
     conn.close()
@@ -152,7 +155,7 @@ class TranscriptionResponse(BaseModel):
 setup_database()
 
 
-@app.post("/upload", response_model=TranscriptionResponse)
+@app.post("/api/transcribe", response_model=TranscriptionResponse)
 async def upload_audio(file: UploadFile = File(...)):
     """
     Accept an uploaded audio file (wav/m4a) and transcribe it with OpenAI.
@@ -182,7 +185,7 @@ async def upload_audio(file: UploadFile = File(...)):
 
     # detect triggers and persist
     trigger_found = detect_triggers(text)
-    save_to_database(file.filename, text, trigger_found)
+    save_to_database(text, trigger_found)
 
     face_image = choose_face(trigger_found)
 

@@ -1,0 +1,23 @@
+{
+  "name": "swell-speech-therapy",
+  "description": "Speech therapy app with voice recognition",
+  "dependencies": {
+    "@expo/vector-icons": "*",
+    "@react-native-async-storage/async-storage": "*",
+    "@react-navigation/bottom-tabs": "*",
+    "@react-navigation/native": "*",
+    "@react-navigation/native-stack": "*",
+    "axios": "*",
+    "expo-av": "*",
+    "expo-file-system": "*",
+    "expo-status-bar": "*",
+    "react-native-safe-area-context": "*",
+    "react-native-screens": "*"
+  },
+  "components": {
+    "App": "./App.tsx",
+    "TMTherapyScreen": "./src/screens/TMTherapyScreen.tsx",
+    "HomeScreen": "./src/screens/HomeScreen.tsx",
+    "CheckIn": "./src/screens/CheckIn.tsx"
+  }
+}
