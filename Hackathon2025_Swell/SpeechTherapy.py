@@ -1,53 +1,34 @@
-import openai
+import asyncio
 import sounddevice as sd
 import wavio
 import sqlite3
 import re
 import time
 import os
-from typing import Optional
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from tempfile import NamedTemporaryFile
+from fastapi import FastAPI, WebSocket
+from openai import OpenAI
+import uvicorn
 
 # ---------------- SETTINGS ----------------
-active = 1  # Set to 1 to enable listening mode
-trigrespon = 0 # Booleon value for face
-duration = 10  # seconds to record each clip
+duration = 10  # seconds per recording
 samplerate = 44100
 filename = "temp_audio.wav"
 trigger_words = ["upset", "stop", "hectic", "overwhelming", "stressful"]
 db_name = "transcripts.db"
-
-TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
-
-client = openai.OpenAI(
-
-
-)
+client = OpenAI(api_key="YOUR_OPENAI_API_KEY")
 # ------------------------------------------
 
 app = FastAPI()
 
-# Allow CORS from your phone/dev IP (adjust origin as needed)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # in production, restrict this
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 def setup_database():
-    """Create a SQLite database and table for storing transcriptions."""
+    """Create SQLite database for transcriptions."""
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transcripts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT,
-            filename TEXT,
             text TEXT,
             trigger_found TEXT
         )
@@ -56,141 +37,91 @@ def setup_database():
     conn.close()
 
 
-def save_to_database(filename: str, text: str, trigger_found: Optional[str]):
+def save_to_database(text, trigger_found):
+    """Save transcription result to the database."""
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO transcripts (timestamp, filename, text, trigger_found) VALUES (?, ?, ?, ?)",
-        (time.strftime("%Y-%m-%d %H:%M:%S"), filename, text, trigger_found or "None"),
+        "INSERT INTO transcripts (timestamp, text, trigger_found) VALUES (?, ?, ?)",
+        (time.strftime("%Y-%m-%d %H:%M:%S"), text, trigger_found),
     )
     conn.commit()
     conn.close()
 
 
-
-def detect_triggers(text: str) -> Optional[str]:
-    found = [w for w in trigger_words if re.search(rf"\b{re.escape(w)}\b", text, re.IGNORECASE)]
+def detect_triggers(text):
+    """Detect key trigger words in the transcription."""
+    found = [word for word in trigger_words if re.search(rf"\b{word}\b", text, re.IGNORECASE)]
     return ", ".join(found) if found else None
 
 
 def record_audio():
-    """Record audio from the microphone and save it to a WAV file."""
-    #print(f" Recording {duration} seconds of audio...")
-    audio_data = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype='int16')
+    """Record 10 seconds of audio and save it as WAV."""
+    print(" Recording audio...")
+    audio_data = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype="int16")
     sd.wait()
     wavio.write(filename, audio_data, samplerate, sampwidth=2)
-    #print(" Audio recorded.")
+    print(" Audio recorded.")
 
 
 def transcribe_audio(file_path):
-    """Send the recorded audio file to OpenAI for transcription."""
-    #print(" Transcribing with OpenAI Whisper...")
+    """Transcribe audio file using OpenAI Whisper."""
+    print(" Transcribing...")
     with open(file_path, "rb") as audio_file:
         transcript = client.audio.transcriptions.create(
-            model=TRANSCRIBE_MODEL,
+            model="gpt-4o-mini-transcribe",
             file=audio_file
         )
-    text = transcript.text.strip()
-    #print(f" Transcription: {text}")
-    return text
+    return transcript.text.strip()
 
 
-
-def choose_face(trigger_found: Optional[str]) -> str:
-    """Simple mapping to image file name depending on whether triggers were found."""
-    if trigger_found:
-        return "SwellSad.png"
-    return "SwellSmile.png"
-
-
-def main():
-    global active, trigrespon 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint with toggleable listening mode."""
+    await websocket.accept()
     setup_database()
-    start_time = time.perf_counter()
 
+    listening = False
+    print(" WebSocket connected")
 
-    #print("Voice recognition active. Speak when ready.")
-
-
-    while active == 1:
-        # Check elapsed time
-        elapsed = time.perf_counter() - start_time
-        if elapsed >= 11:
-            active = 0
-            #print("11 seconds passed. Stopping voice recognition.")
-            break
-
-        record_audio()
-        text = transcribe_audio(filename)
-        trigger_found = detect_triggers(text)
-        if trigger_found:
-            trigrespon = 1
-            #print(f" Trigger detected: {trigger_found}")
-        save_to_database(filename, text, trigger_found or "None")
-        os.remove(filename)
-
-
-
-class TranscriptionResponse(BaseModel):
-    text: str
-    triggers: Optional[str]
-    engine: str
-    filename: str
-    face_image: str
-
-
-# --- Startup ---
-setup_database()
-
-
-@app.post("/upload", response_model=TranscriptionResponse)
-async def upload_audio(file: UploadFile = File(...)):
-    """
-    Accept an uploaded audio file (wav/m4a) and transcribe it with OpenAI.
-    Returns JSON with transcription, triggers, and recommended face image.
-    """
-    # save to a temporary file
     try:
-        with NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
-            tmp_name = tmp.name
-            contents = await file.read()
-            tmp.write(contents)
+        while True:
+            # Check if any message was sent by frontend
+            try:
+                msg = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
+                if msg == "start":
+                    listening = True
+                    print("Listening started.")
+                    await websocket.send_json({"status": "listening"})
+                elif msg == "stop":
+                    listening = False
+                    print(" Listening stopped.")
+                    await websocket.send_json({"status": "stopped"})
+            except asyncio.TimeoutError:
+                pass  # no message received this cycle
+
+            if listening:
+                # Record, transcribe, detect, send
+                record_audio()
+                text = transcribe_audio(filename)
+                trigger_found = detect_triggers(text)
+                save_to_database(text, trigger_found or "None")
+
+                await websocket.send_json({
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "text": text,
+                    "trigger_found": trigger_found or "",
+                })
+
+                os.remove(filename)
+                await asyncio.sleep(1)  # short pause before next capture
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {e}")
-
-    # call OpenAI transcription
-    try:
-        with open(tmp_name, "rb") as audio_file:
-            transcription = client.audio.transcriptions.create(
-                model=TRANSCRIBE_MODEL,
-                file=audio_file
-            )
-        text = transcription.text.strip()
-    except Exception as e:
-        # cleanup and return error
-        os.remove(tmp_name)
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
-
-    # detect triggers and persist
-    trigger_found = detect_triggers(text)
-    save_to_database(filename, text, trigger_found or "None")
-
-    face_image = choose_face(trigger_found)
-
-    # Optionally remove tmp file to save disk
-    os.remove(tmp_name)
-
-    return TranscriptionResponse(
-        text=text,
-        triggers=trigger_found,
-        engine=TRANSCRIBE_MODEL,
-        filename=file.filename,
-        face_image=face_image,
-    )
+        print("WebSocket error:", e)
+    finally:
+        await websocket.close()
+        print(" WebSocket closed.")
 
 
-
-
-
-#if __name__ == "__main__":
-    #main()
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
